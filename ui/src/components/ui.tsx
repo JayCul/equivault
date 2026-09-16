@@ -3,7 +3,7 @@
  * of the work, so there is no card component that wraps every stray fact.
  */
 
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
 import { Link } from 'react-router-dom';
 
 export const cx = (...parts: Array<string | false | null | undefined>): string =>
@@ -89,6 +89,61 @@ export const Spinner = ({ className }: { className?: string }) => (
     <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
   </svg>
 );
+
+// --- form controls -----------------------------------------------------------
+
+/**
+ * A styled native `<select>`. Used anywhere the set of valid values is closed
+ * (a unit, a duration preset, an allocation method) rather than free text -
+ * closed choices cannot be mistyped and never need a validation message.
+ */
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  options: ReadonlyArray<{ value: string; label: string }>;
+};
+
+export const Select = ({ options, className, ...rest }: SelectProps) => (
+  <div className="relative">
+    <select
+      {...rest}
+      className={cx(
+        'tnum w-full appearance-none rounded-md border border-cream-500/20 bg-ink-900 px-3.5 py-2.5 pr-9 text-[0.9rem] text-cream-50 outline-none transition-colors focus:border-gold-500/60',
+        className,
+      )}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+    <svg
+      className="pointer-events-none absolute top-1/2 right-3 h-3.5 w-3.5 -translate-y-1/2 text-cream-500"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      aria-hidden="true"
+    >
+      <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  </div>
+);
+
+/**
+ * Restricts typed input to digits only (plus an optional leading `-`), so a
+ * quantity field cannot hold letters or symbols at all - not just on submit,
+ * but as the character is typed. Pair with a `NumericField` error message for
+ * range checks that must happen after parsing (e.g. "must be positive").
+ */
+export const sanitizeDigits = (raw: string): string => raw.replace(/[^0-9]/g, '');
+
+/** Same idea, allowing one decimal point - for prices and other fractional inputs. */
+export const sanitizeDecimal = (raw: string): string => {
+  const cleaned = raw.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot === -1) return cleaned;
+  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+};
 
 // --- layout ----------------------------------------------------------------
 

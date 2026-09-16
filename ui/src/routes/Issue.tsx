@@ -19,7 +19,10 @@ import {
   EyeIcon,
   LockIcon,
   Pill,
+  sanitizeDecimal,
+  sanitizeDigits,
   Section,
+  Select,
   Stat,
   cx,
 } from '../components/ui';
@@ -30,6 +33,8 @@ type Draft = {
   name: string;
   description: string;
   unit: string;
+  /** Only used when `unit === '__custom__'`. */
+  customUnit: string;
   totalSupply: string;
   unitPrice: string;
   minRequest: string;
@@ -37,10 +42,40 @@ type Draft = {
   durationHours: string;
 };
 
+/**
+ * Closed set of resource units. EquiVault allocates "units of a scarce
+ * resource" in general (see docs/wave-3.md) - this list is the vocabulary
+ * that's been exercised end-to-end (contract tests, demo seeds), so a
+ * dropdown here can't drift into a unit the rest of the product doesn't
+ * expect. "Custom..." escapes to free text for anything else.
+ */
+const UNIT_OPTIONS = [
+  { value: 'shares', label: 'Shares' },
+  { value: 'scholarships', label: 'Scholarships' },
+  { value: 'tickets', label: 'Tickets' },
+  { value: 'seats', label: 'Seats' },
+  { value: 'grants', label: 'Grants' },
+  { value: 'licenses', label: 'Licenses' },
+  { value: 'units', label: 'Units' },
+  { value: '__custom__', label: 'Custom…' },
+] as const;
+
+/** Subscription window presets, in hours. Free-typed hours invited typos like "24o". */
+const DURATION_OPTIONS = [
+  { value: '1', label: '1 hour' },
+  { value: '6', label: '6 hours' },
+  { value: '12', label: '12 hours' },
+  { value: '24', label: '1 day' },
+  { value: '72', label: '3 days' },
+  { value: '168', label: '1 week' },
+  { value: '336', label: '2 weeks' },
+] as const;
+
 const EMPTY: Draft = {
   name: '',
   description: '',
   unit: 'shares',
+  customUnit: '',
   totalSupply: '100000',
   unitPrice: '25',
   minRequest: '100',
@@ -51,16 +86,22 @@ const EMPTY: Draft = {
 const Field = ({
   label,
   hint,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  error?: string;
   children: React.ReactNode;
 }) => (
   <label className="flex flex-col gap-1.5">
     <span className="text-[0.82rem] text-cream-100">{label}</span>
     {children}
-    {hint ? <span className="text-[0.72rem] text-cream-600">{hint}</span> : null}
+    {error ? (
+      <span className="text-[0.72rem] text-danger-400">{error}</span>
+    ) : hint ? (
+      <span className="text-[0.72rem] text-cream-600">{hint}</span>
+    ) : null}
   </label>
 );
 
@@ -69,7 +110,7 @@ const inputClass =
 
 /* -------------------------------------------------------------------------- */
 
-const PrivacyPreview = ({ draft }: { draft: Draft }) => (
+const PrivacyPreview = ({ draft, unit }: { draft: Draft; unit: string }) => (
   <div className="grid gap-px overflow-hidden rounded-lg border border-cream-500/15 bg-cream-500/15 sm:grid-cols-2">
     <div className="bg-ink-900 p-5">
       <p className="eyebrow flex items-center gap-2 text-verify-400">
@@ -79,7 +120,7 @@ const PrivacyPreview = ({ draft }: { draft: Draft }) => (
         <li>Offering name and description</li>
         <li>
           Supply: {draft.totalSupply === '' ? '—' : formatQuantity(BigInt(draft.totalSupply || '0'))}{' '}
-          {draft.unit}
+          {unit || 'units'}
         </li>
         <li>The allocation rule and its parameters</li>
         <li>Subscription deadline</li>
@@ -112,41 +153,121 @@ const PrivacyPreview = ({ draft }: { draft: Draft }) => (
 
 /* -------------------------------------------------------------------------- */
 
+/** Per-field validation messages, keyed by the field they apply to. Empty string = no error. */
+type FieldErrors = Partial<Record<keyof Draft, string>>;
+
 const CreateForm = () => {
   const { createOffering, wallet, connect, mode } = useApp();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [touched, setTouched] = useState<Partial<Record<keyof Draft, boolean>>>({});
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<FriendlyFailure | undefined>();
 
-  const set = (key: keyof Draft) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setDraft((current) => ({ ...current, [key]: event.target.value }));
+  const setField = (key: keyof Draft, value: string) =>
+    setDraft((current) => ({ ...current, [key]: value }));
+
+  const set = (key: keyof Draft) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setField(key, event.target.value);
+
+  /** Sanitizes on every keystroke, so a letter never lands in a numeric field at all. */
+  const setDigits = (key: keyof Draft) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setField(key, sanitizeDigits(event.target.value));
+
+  const setDecimal = (key: keyof Draft) => (event: React.ChangeEvent<HTMLInputElement>) =>
+    setField(key, sanitizeDecimal(event.target.value));
+
+  const markTouched = (key: keyof Draft) => () => setTouched((current) => ({ ...current, [key]: true }));
+
+  const resolvedUnit = draft.unit === '__custom__' ? draft.customUnit.trim() : draft.unit;
+
+  /**
+   * Every field's error, computed together so "maximum below minimum" can be
+   * attributed to the max field without re-deriving the parsed numbers twice.
+   */
+  const errors = useMemo((): FieldErrors => {
+    const out: FieldErrors = {};
+
+    if (draft.name.trim() === '') {
+      out.name = 'Name is required.';
+    }
+
+    if (draft.unit === '__custom__' && draft.customUnit.trim() === '') {
+      out.customUnit = 'Enter a unit name.';
+    }
+
+    if (draft.totalSupply === '') {
+      out.totalSupply = 'Required.';
+    } else if (BigInt(draft.totalSupply) <= 0n) {
+      out.totalSupply = 'Must be greater than zero.';
+    }
+
+    if (draft.unitPrice !== '' && Number.isNaN(Number(draft.unitPrice))) {
+      out.unitPrice = 'Enter a valid amount.';
+    }
+
+    if (draft.minRequest === '') {
+      out.minRequest = 'Required.';
+    } else if (BigInt(draft.minRequest) <= 0n) {
+      out.minRequest = 'Must be greater than zero.';
+    }
+
+    if (draft.maxRequest === '') {
+      out.maxRequest = 'Required.';
+    } else if (
+      draft.minRequest !== '' &&
+      BigInt(draft.maxRequest || '0') < BigInt(draft.minRequest)
+    ) {
+      out.maxRequest = 'Must be at least the minimum request.';
+    }
+
+    if (draft.durationHours === '') {
+      out.durationHours = 'Required.';
+    } else if (Number(draft.durationHours) <= 0) {
+      out.durationHours = 'Must be greater than zero.';
+    }
+
+    return out;
+  }, [draft]);
+
+  const hasErrors = Object.keys(errors).length > 0;
+
+  const errorFor = (key: keyof Draft): string | undefined => (touched[key] ? errors[key] : undefined);
 
   const parsed = useMemo((): CreateOfferingParams | undefined => {
+    if (hasErrors) return undefined;
     try {
-      const supply = BigInt(draft.totalSupply || '0');
-      const min = BigInt(draft.minRequest || '0');
-      const max = BigInt(draft.maxRequest || '0');
-      const hours = Number(draft.durationHours || '0');
-      if (draft.name.trim() === '' || supply <= 0n || min <= 0n || min > max || hours <= 0) {
-        return undefined;
-      }
       return {
         name: draft.name.trim(),
         description: draft.description.trim(),
-        unit: draft.unit.trim() || 'units',
-        totalSupply: supply,
+        unit: resolvedUnit || 'units',
+        totalSupply: BigInt(draft.totalSupply),
         unitPriceCents: BigInt(Math.round(Number(draft.unitPrice || '0') * 100)),
-        minRequest: min,
-        maxRequest: max,
-        subscriptionDeadline: BigInt(Math.floor(Date.now() / 1000) + hours * 3600),
+        minRequest: BigInt(draft.minRequest),
+        maxRequest: BigInt(draft.maxRequest),
+        subscriptionDeadline: BigInt(
+          Math.floor(Date.now() / 1000) + Number(draft.durationHours) * 3600,
+        ),
       };
     } catch {
       return undefined;
     }
-  }, [draft]);
+  }, [draft, hasErrors, resolvedUnit]);
 
   const handleLaunch = async () => {
+    // Surface every error at once on a submit attempt, even for fields the
+    // issuer never focused.
+    setTouched({
+      name: true,
+      unit: true,
+      customUnit: true,
+      totalSupply: true,
+      unitPrice: true,
+      minRequest: true,
+      maxRequest: true,
+      durationHours: true,
+    });
     if (!parsed) return;
     setBusy(true);
     setFailure(undefined);
@@ -171,11 +292,12 @@ const CreateForm = () => {
         </h2>
 
         <div className="mt-7 grid gap-5">
-          <Field label="Name">
+          <Field label="Name" error={errorFor('name')}>
             <input
               className={inputClass}
               value={draft.name}
               onChange={set('name')}
+              onBlur={markTouched('name')}
               placeholder="Aurora Energy Systems"
             />
           </Field>
@@ -190,47 +312,89 @@ const CreateForm = () => {
           </Field>
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Unit" hint="shares, scholarships, tickets…">
-              <input className={inputClass} value={draft.unit} onChange={set('unit')} />
+            <Field label="Unit">
+              <Select
+                options={UNIT_OPTIONS}
+                value={draft.unit}
+                onChange={set('unit')}
+                onBlur={markTouched('unit')}
+              />
             </Field>
-            <Field label="Total supply">
+            {draft.unit === '__custom__' ? (
+              <Field label="Custom unit name" error={errorFor('customUnit')}>
+                <input
+                  className={inputClass}
+                  value={draft.customUnit}
+                  onChange={set('customUnit')}
+                  onBlur={markTouched('customUnit')}
+                  placeholder="e.g. compute hours"
+                />
+              </Field>
+            ) : (
+              <Field label="Subscription window">
+                <Select
+                  options={DURATION_OPTIONS}
+                  value={draft.durationHours}
+                  onChange={set('durationHours')}
+                  onBlur={markTouched('durationHours')}
+                />
+              </Field>
+            )}
+            <Field label="Total supply" error={errorFor('totalSupply')}>
               <input
                 className={inputClass}
                 inputMode="numeric"
+                pattern="[0-9]*"
                 value={draft.totalSupply}
-                onChange={set('totalSupply')}
+                onChange={setDigits('totalSupply')}
+                onBlur={markTouched('totalSupply')}
               />
             </Field>
-            <Field label="Simulated price" hint="In simulated dollars. Use 0 if not priced.">
+            <Field
+              label="Simulated price"
+              hint="In simulated dollars. Use 0 if not priced."
+              error={errorFor('unitPrice')}
+            >
               <input
                 className={inputClass}
                 inputMode="decimal"
                 value={draft.unitPrice}
-                onChange={set('unitPrice')}
+                onChange={setDecimal('unitPrice')}
+                onBlur={markTouched('unitPrice')}
               />
             </Field>
-            <Field label="Subscription window" hint="Hours until the deadline.">
+            {draft.unit === '__custom__' ? (
+              <Field label="Subscription window">
+                <Select
+                  options={DURATION_OPTIONS}
+                  value={draft.durationHours}
+                  onChange={set('durationHours')}
+                  onBlur={markTouched('durationHours')}
+                />
+              </Field>
+            ) : null}
+            <Field label="Minimum request" error={errorFor('minRequest')}>
               <input
                 className={inputClass}
                 inputMode="numeric"
-                value={draft.durationHours}
-                onChange={set('durationHours')}
-              />
-            </Field>
-            <Field label="Minimum request">
-              <input
-                className={inputClass}
-                inputMode="numeric"
+                pattern="[0-9]*"
                 value={draft.minRequest}
-                onChange={set('minRequest')}
+                onChange={setDigits('minRequest')}
+                onBlur={markTouched('minRequest')}
               />
             </Field>
-            <Field label="Maximum request" hint="May exceed supply to allow oversubscription.">
+            <Field
+              label="Maximum request"
+              hint="May exceed supply to allow oversubscription."
+              error={errorFor('maxRequest')}
+            >
               <input
                 className={inputClass}
                 inputMode="numeric"
+                pattern="[0-9]*"
                 value={draft.maxRequest}
-                onChange={set('maxRequest')}
+                onChange={setDigits('maxRequest')}
+                onBlur={markTouched('maxRequest')}
               />
             </Field>
           </div>
@@ -257,7 +421,7 @@ const CreateForm = () => {
         </p>
 
         <div className="mt-6">
-          <PrivacyPreview draft={draft} />
+          <PrivacyPreview draft={draft} unit={resolvedUnit} />
         </div>
 
         {failure ? (
