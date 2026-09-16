@@ -77,6 +77,21 @@ describe('errors :: classification', () => {
     );
   });
 
+  // Regression: the exact shape Lace's connector threw in production - a
+  // DAppConnectorAPIError (not an Error instance) with both message and
+  // reason set to its own wording, which does not say "disconnected" but
+  // means exactly that.
+  it('classifies Lace’s "no account is connected" error as wallet-disconnected', () => {
+    const laceError = {
+      code: 'InternalError',
+      message: 'No account is connected for this dApp. Please reconnect.',
+      name: 'APIError',
+      reason: 'No account is connected for this dApp. Please reconnect.',
+      type: 'DAppConnectorAPIError',
+    };
+    expect(toFriendlyFailure(laceError).kind).toEqual('wallet-disconnected');
+  });
+
   it('falls back to JSON for an object with neither message nor reason', () => {
     // Still unknown - there is genuinely nothing to classify - but must not throw,
     // including for a value with a circular reference that defeats JSON.stringify.

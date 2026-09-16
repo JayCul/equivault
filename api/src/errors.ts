@@ -49,7 +49,9 @@ const FAILURES: Record<FailureKind, Omit<FriendlyFailure, 'kind'>> = {
   },
   'wallet-disconnected': {
     title: 'Wallet disconnected',
-    detail: 'Your wallet is no longer connected. Reconnect it to continue.',
+    detail:
+      'Your wallet is no longer connected. Disconnect and reconnect using the button in the header. ' +
+      'If that does not help, check your wallet extension’s connected-sites settings.',
     retryable: true,
   },
   'wallet-rejected': {
@@ -163,7 +165,11 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
   [/would exceed supply/i, 'supply-exhausted'],
   [/user (rejected|declined)|rejected the request|denied by the user/i, 'wallet-rejected'],
   [/no (midnight )?wallet|lace not found|connector .*not (found|available)/i, 'wallet-missing'],
-  [/wallet (is )?(not connected|disconnected)/i, 'wallet-disconnected'],
+  // "No account is connected for this dApp. Please reconnect." is Lace's own
+  // wording when it drops the per-site authorization - e.g. after the
+  // extension reloads, the account is switched, or the wallet is re-locked
+  // mid-session. Same remedy as our own "disconnected" case: reconnect.
+  [/wallet (is )?(not connected|disconnected)|no account is connected/i, 'wallet-disconnected'],
   [/proof server|prover.*(unreachable|refused)|ECONNREFUSED.*6300/i, 'proof-server-unreachable'],
   [/insufficient (funds|balance)|not enough (tdust|dust|funds)/i, 'insufficient-funds'],
   // Browsers report a failed fetch() with different wording per engine, and
