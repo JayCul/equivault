@@ -71,7 +71,9 @@ const FAILURES: Record<FailureKind, Omit<FriendlyFailure, 'kind'>> = {
   },
   'network-unavailable': {
     title: 'Network unavailable',
-    detail: 'EquiVault could not reach the Midnight network. Check your connection and try again.',
+    detail:
+      'EquiVault could not reach a service it needs. Check your connection, and if you are on the ' +
+      'live network, confirm your proof server is running and your wallet points to it.',
     retryable: true,
   },
   'offering-not-open': {
@@ -164,7 +166,14 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
   [/wallet (is )?(not connected|disconnected)/i, 'wallet-disconnected'],
   [/proof server|prover.*(unreachable|refused)|ECONNREFUSED.*6300/i, 'proof-server-unreachable'],
   [/insufficient (funds|balance)|not enough (tdust|dust|funds)/i, 'insufficient-funds'],
-  [/fetch failed|network ?error|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|indexer/i, 'network-unavailable'],
+  // Browsers report a failed fetch() with different wording per engine, and
+  // NONE of them include the target URL in the message (CORS and mixed-content
+  // blocks look identical to a dead server from here), so this stays one broad
+  // bucket rather than a guess at which network hop actually failed.
+  [
+    /fetch failed|failed to fetch|load failed|network ?error|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|indexer/i,
+    'network-unavailable',
+  ],
 ];
 
 const messageOf = (error: unknown): string => {

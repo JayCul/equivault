@@ -19,6 +19,14 @@ describe('errors :: classification', () => {
     ['connect ECONNREFUSED 127.0.0.1:6300', 'proof-server-unreachable'],
     ['insufficient funds for transaction', 'insufficient-funds'],
     ['fetch failed', 'network-unavailable'],
+    // The literal message Chrome's fetch() throws on any network-level failure
+    // (refused connection, DNS failure, CORS block, mixed content) - this is
+    // the one that actually reached users, so it gets its own case.
+    ['TypeError: Failed to fetch', 'network-unavailable'],
+    // Safari's equivalent.
+    ['TypeError: Load failed', 'network-unavailable'],
+    // Firefox's equivalent.
+    ['NetworkError when attempting to fetch resource.', 'network-unavailable'],
   ];
 
   it.each(cases)('maps %j to %s', (raw, expected) => {
