@@ -20,6 +20,7 @@ import { LiveOfferingSession } from '../lib/live';
 import type { OfferingSession } from '../lib/session';
 import { buildProviders, connectWallet, type ConnectedWallet } from '../lib/wallet';
 import { NETWORK_ID } from '../lib/network';
+import { listKnownOfferings, rememberOffering } from '../lib/offeringRegistry';
 
 export type Mode = 'demo' | 'live';
 
@@ -42,6 +43,8 @@ type AppState = {
   /** Offerings to show in the browse view. */
   readonly sessions: readonly OfferingSession[];
   readonly loading: boolean;
+  /** True while previously created/joined live offerings are being reconnected after a wallet connect. */
+  readonly restoringSessions: boolean;
   readonly loadError?: FriendlyFailure;
 
   readonly getSession: (address: string) => OfferingSession | undefined;
@@ -61,6 +64,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [providers, setProviders] = useState<EquiVaultProviders | undefined>();
   const [demoSessions, setDemoSessions] = useState<readonly DemoOfferingSession[]>([]);
   const [liveSessions, setLiveSessions] = useState<readonly OfferingSession[]>([]);
+  const [restoringSessions, setRestoringSessions] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<FriendlyFailure | undefined>();
 
@@ -94,6 +98,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setProviders(built);
       setWallet({ kind: 'connected', wallet: connected });
       setMode('live');
+
+      // Reconnect every offering this browser has previously created or
+      // joined on this network. Without this, an offering becomes invisible
+      // in the UI the moment the tab reloads, even though it is still live on
+      // chain - only its address (remembered in localStorage) survives a
+      // reload, so it has to be re-fetched through the real providers.
+      const knownAddresses = listKnownOfferings(NETWORK_ID);
+      if (knownAddresses.length > 0) {
+        setRestoringSessions(true);
+        const results = await Promise.allSettled(
+          knownAddresses.map((address) => LiveOfferingSession.join(built, address)),
+        );
+        const restored = results
+          .filter((result): result is PromiseFulfilledResult<LiveOfferingSession> => result.status === 'fulfilled')
+          .map((result) => result.value);
+        setLiveSessions((current) => {
+          const existing = new Set(current.map((session) => session.address));
+          return [...current, ...restored.filter((session) => !existing.has(session.address))];
+        });
+        setRestoringSessions(false);
+      }
     } catch (error: unknown) {
       setWallet({ kind: 'failed', failure: toFriendlyFailure(error) });
     }
@@ -103,6 +128,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setProviders(undefined);
     setWallet({ kind: 'disconnected' });
     setLiveSessions([]);
+    setRestoringSessions(false);
     setMode('demo');
   }, []);
 
@@ -128,6 +154,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
       const session = await LiveOfferingSession.join(requireProviders(), address);
       setLiveSessions((current) => [...current, session]);
+      rememberOffering(NETWORK_ID, session.address);
       return session;
     },
     [getSession, requireProviders],
@@ -137,6 +164,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     async (params: CreateOfferingParams): Promise<OfferingSession> => {
       const session = await LiveOfferingSession.deploy(requireProviders(), params);
       setLiveSessions((current) => [...current, session]);
+      rememberOffering(NETWORK_ID, session.address);
       return session;
     },
     [requireProviders],
@@ -162,6 +190,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       disconnect,
       sessions,
       loading,
+      restoringSessions,
       loadError,
       getSession,
       joinOffering,
@@ -175,6 +204,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       disconnect,
       sessions,
       loading,
+      restoringSessions,
       loadError,
       getSession,
       joinOffering,
