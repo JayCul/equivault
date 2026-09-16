@@ -1,0 +1,11 @@
+{
+  "generatedFrom": "contract/src/equivault.compact",
+  "sourceSha256": "64c773373d5b850c5343a3a4d2a49ff42376576fc764fa6e0cbbf824f2882430",
+  "circuits": {
+    "claimAllocation": "a0cb67e673429546295b6fbdb11e83bb5ba0994cf5e404b45b263dc86b5c8df6",
+    "closeSubscriptionAfterDeadline": "748edf77d2e3e1cb3b82254090acfdb3e4c4ce48e6e70ae04b74da6f6a34bc69",
+    "closeSubscriptionAsIssuer": "08d69f5ca0e3dcb804ad329e027bf1bef12699d093ae4e5a983dc4d98750fbf0",
+    "finalizeAllocation": "ad652b48969dd6b755d0bc4ee3029c5185ba41a45f5a7b294a6ad70c5d5a4ffd",
+    "submitRequest": "a9d15c5cb4f269d5d3142e22a3ab0c77836eaf078dad43356a2aa85e9dd57684"
+  }
+}

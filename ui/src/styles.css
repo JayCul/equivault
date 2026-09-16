@@ -1,0 +1,200 @@
+@import 'tailwindcss';
+
+/*
+ * EquiVault design system.
+ *
+ * Near-black foundation, a single gold gradient used sparingly, cream
+ * typography. The restraint is the point: this should read as institutional
+ * finance infrastructure, not as a crypto dashboard.
+ */
+@theme {
+  /* Foundation */
+  --color-ink-950: #050505;
+  --color-ink-900: #0a0a0b;
+  --color-ink-850: #0f0f11;
+  --color-ink-800: #141417;
+  --color-ink-700: #1c1c20;
+  --color-ink-600: #26262b;
+  --color-ink-500: #33333a;
+
+  /* Gold - the only accent */
+  --color-gold-200: #ffe9a8;
+  --color-gold-300: #ffd965;
+  --color-gold-400: #ffc837;
+  --color-gold-500: #f5a623;
+  --color-gold-600: #d98a0f;
+  --color-gold-700: #a8660a;
+
+  /* Typography */
+  --color-cream-50: #fbf9f4;
+  --color-cream-100: #f2ede1;
+  --color-cream-300: #cdc7ba;
+  --color-cream-500: #8e8a80;
+  --color-cream-600: #6b675f;
+
+  /* Semantic */
+  --color-verify-400: #5fd6a4;
+  --color-verify-600: #1f7d55;
+  --color-warn-400: #ffb454;
+  --color-danger-400: #ff6b6b;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-cream-100);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Financial data must align. Always. */
+  .tnum,
+  table,
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  ::selection {
+    background-color: var(--color-gold-500);
+    color: var(--color-ink-950);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold-400);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* The gold gradient, used for emphasis text and the logo mark. */
+  .text-gradient-gold {
+    background-image: linear-gradient(
+      100deg,
+      var(--color-gold-500) 0%,
+      var(--color-gold-300) 45%,
+      var(--color-gold-400) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Hairline rules rather than heavy card borders. */
+  .rule {
+    border-color: color-mix(in oklab, var(--color-cream-500) 18%, transparent);
+  }
+
+  .surface {
+    background-color: color-mix(in oklab, var(--color-ink-850) 92%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-cream-500) 14%, transparent);
+  }
+
+  /* Restrained glass: a hint of depth, never a frosted slab. */
+  .glass {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-ink-800) 75%, transparent),
+      color-mix(in oklab, var(--color-ink-900) 88%, transparent)
+    );
+    border: 1px solid color-mix(in oklab, var(--color-cream-500) 12%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-cream-500);
+  }
+
+  /* Subtle animated sheen for the hero mark only. */
+  .sheen {
+    background-size: 200% 100%;
+    animation: sheen 7s ease-in-out infinite;
+  }
+}
+
+@keyframes sheen {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pulse-ring {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.animate-dash {
+  stroke-dasharray: 4 8;
+  animation: dash-flow 1.6s linear infinite;
+}

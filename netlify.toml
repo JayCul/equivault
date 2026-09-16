@@ -1,0 +1,46 @@
+# EquiVault - Netlify deployment
+#
+# EquiVault is a static single-page app. There is no backend: the app talks
+# directly to the Midnight indexer, the user's wallet, and the user's own local
+# proof server. Nothing server-side needs to exist.
+
+[build]
+  command = "npm run build"
+  publish = "ui/dist"
+
+[build.environment]
+  # Midnight requires Node >= 24.11.1. Also pinned in .nvmrc.
+  NODE_VERSION = "24.11.1"
+  # The Midnight SDK has peer-dependency conflicts that npm cannot resolve
+  # strictly; the official example ships the same setting.
+  NPM_FLAGS = "--legacy-peer-deps"
+
+# Client-side routing: every unmatched path serves the SPA shell.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Prover keys and circuit IR are content-addressed by the compiled contract,
+# so they can be cached hard. Re-compiling the contract changes the files.
+[[headers]]
+  for = "/keys/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/zkir/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"

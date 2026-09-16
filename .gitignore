@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+reports/
+.env
+.env.local
+*.log
+
+# NOTE: contract/src/managed/ is deliberately COMMITTED.
+# It is the compiled Compact output (circuits, prover + verifier keys). Cloud
+# build images have no Compact toolchain, so committing it lets Netlify/Vercel
+# build, and lets a reviewer clone and run without installing the compiler.
+# Regenerate with `npm run compact`.
+
+# Local private state / wallet caches - NEVER commit
+.midnight/
+*.private-state
+
+# Generated ZK assets copied into the UI (regenerate with scripts/copy-zk-assets.mjs)
+ui/public/keys/
+ui/public/zkir/

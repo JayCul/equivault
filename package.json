@@ -1,0 +1,51 @@
+{
+  "name": "equivault",
+  "version": "0.1.0",
+  "description": "EquiVault - private allocation of scarce resources on Midnight",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.1"
+  },
+  "workspaces": [
+    "contract",
+    "api",
+    "ui"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @equivault/contract && npm run build --workspace @equivault/api && npm run build --workspace @equivault/ui",
+    "ci": "npm run compact && npm run typecheck && npm run test && npm run build",
+    "compact": "npm run compact --workspace @equivault/contract && npm run postcompact",
+    "dev": "npm run dev --workspace @equivault/ui",
+    "lint": "npm run lint --workspaces --if-present",
+    "postcompact": "node scripts/circuit-manifest.mjs && node scripts/copy-zk-assets.mjs",
+    "prebuild": "node scripts/circuit-manifest.mjs && node scripts/copy-zk-assets.mjs",
+    "proof-server": "docker run -d --name equivault-proof-server -p 6300:6300 midnightntwrk/proof-server:8.1.0 midnight-proof-server --network testnet",
+    "proof-server:stop": "docker rm -f equivault-proof-server",
+    "test": "npm run test --workspace @equivault/contract && npm run test --workspace @equivault/api && npm run test --workspace @equivault/ui",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-fetch-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/midnight-js-utils": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk": "1.2.0",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "resolutions": {
+    "@midnight-ntwrk/wallet-sdk": "1.2.0"
+  }
+}

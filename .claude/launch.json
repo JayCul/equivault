@@ -1,0 +1,28 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "equivault-ui",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": [
+        "-d",
+        "Ubuntu",
+        "--",
+        "bash",
+        "/mnt/c/Users/JayCul/Documents/Code/Hackathons/equivault/scripts/wsl-run.sh",
+        "npm",
+        "run",
+        "dev",
+        "--workspace",
+        "@equivault/ui",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
+      "port": 5173
+    }
+  ]
+}

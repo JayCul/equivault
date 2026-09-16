@@ -1,0 +1,262 @@
+// EquiVault - Privacy-Preserving Allocation of a Scarce Resource
+// SPDX-License-Identifier: Apache-2.0
+//
+// One deployed instance of this contract == one offering (an IPO, a scholarship
+// round, a procurement tender, a ticket drop). The resource is generic on
+// purpose: `totalSupply` units of `resourceUnit` are distributed among
+// participants who each submit a PRIVATE request.
+//
+// ---------------------------------------------------------------------------
+// PRIVACY BOUNDARY (authoritative - mirrored in docs/privacy-model.md)
+// ---------------------------------------------------------------------------
+// PRIVATE (never written to the ledger, lives only in witness / private state):
+//   * the participant secret key
+//   * the participant requested quantity
+//   * the commitment opening (nonce)
+//   * which leaf of the request tree belongs to which participant
+//
+// PUBLIC (written to the ledger, visible to everyone):
+//   * the offering parameters and the allocation rule
+//   * the number of participants
+//   * the AGGREGATE total demand
+//   * hiding commitments to each request (no amount recoverable)
+//   * one-way nullifiers (no identity recoverable)
+//   * each claimed allocation, keyed by an unlinkable claim nullifier
+//
+// Known, deliberate disclosure: `totalDemand` is a running public aggregate, so
+// the DELTA between two consecutive submission transactions equals one
+// participant requested quantity. That quantity is NOT attributable to an
+// identity, but it is observable. See docs/threat-model.md.
+// ---------------------------------------------------------------------------
+
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// Depth 10 => up to 1024 participants per offering.
+export ledger requestTree: HistoricMerkleTree<10, Bytes<32>>;
+
+export enum Phase {
+  OPEN,       // accepting private requests
+  CLOSED,     // subscription window over, demand frozen
+  FINALIZED   // allocation rule locked in, participants may claim
+}
+
+export enum AllocationRule {
+  PRO_RATA    // allocation_i = floor(request_i * min(supply, demand) / demand)
+}
+
+// --- public offering parameters -------------------------------------------
+export ledger offeringId: Bytes<32>;
+export ledger resourceName: Opaque<"string">;
+export ledger resourceDescription: Opaque<"string">;
+export ledger resourceUnit: Opaque<"string">;
+export ledger totalSupply: Uint<64>;
+export ledger unitPriceCents: Uint<64>;
+export ledger minRequest: Uint<64>;
+export ledger maxRequest: Uint<64>;
+export ledger subscriptionDeadline: Uint<64>;
+export ledger allocationRule: AllocationRule;
+
+// --- public offering state -------------------------------------------------
+export ledger phase: Phase;
+export ledger issuerCommitment: Bytes<32>;
+export ledger participantCount: Counter;
+export ledger claimCount: Counter;
+export ledger totalDemand: Uint<64>;
+export ledger allocatedTotal: Uint<64>;
+
+// --- public cryptographic state -------------------------------------------
+export ledger submissionNullifiers: Set<Bytes<32>>;
+export ledger claimNullifiers: Set<Bytes<32>>;
+export ledger allocationReceipts: Map<Bytes<32>, Uint<64>>;
+
+// --- private inputs --------------------------------------------------------
+struct SubscriptionRequest {
+  amount: Uint<64>,
+  nonce: Bytes<32>
+}
+
+witness localSecretKey(): Bytes<32>;
+witness subscriptionRequest(): SubscriptionRequest;
+witness allocationQuotient(): Uint<64>;
+witness requestPath(): MerkleTreePath<10, Bytes<32>>;
+
+constructor(
+  id: Bytes<32>,
+  name: Opaque<"string">,
+  description: Opaque<"string">,
+  unit: Opaque<"string">,
+  supply: Uint<64>,
+  priceCents: Uint<64>,
+  minReq: Uint<64>,
+  maxReq: Uint<64>,
+  deadline: Uint<64>
+) {
+  // Quantities are capped at 2^40 so that `request * supply` stays far inside
+  // the field, which keeps the verified-division constraints sound.
+  assert(disclose(supply > 0), "EquiVault: supply must be positive");
+  assert(disclose(supply <= 1099511627776), "EquiVault: supply exceeds maximum");
+  assert(disclose(minReq > 0), "EquiVault: minimum request must be positive");
+  assert(disclose(minReq <= maxReq), "EquiVault: minimum exceeds maximum");
+  assert(disclose(maxReq <= 1099511627776), "EquiVault: maximum request exceeds cap");
+
+  offeringId = disclose(id);
+  resourceName = disclose(name);
+  resourceDescription = disclose(description);
+  resourceUnit = disclose(unit);
+  totalSupply = disclose(supply);
+  unitPriceCents = disclose(priceCents);
+  minRequest = disclose(minReq);
+  maxRequest = disclose(maxReq);
+  subscriptionDeadline = disclose(deadline);
+  allocationRule = AllocationRule.PRO_RATA;
+
+  phase = Phase.OPEN;
+  totalDemand = 0;
+  allocatedTotal = 0;
+
+  // The issuer is identified only by a one-way commitment to their secret key.
+  issuerCommitment = disclose(
+    persistentHash<Vector<4, Bytes<32>>>(
+      [pad(32, "equivault:v1:"), id, pad(32, "issuer"), localSecretKey()]
+    )
+  );
+}
+
+// Domain-separated, offering-scoped identity tag. Binding the offering id in
+// means the same secret key produces unlinkable tags across different offerings.
+//
+// This circuit is deliberately PURE (it takes the offering id as a parameter
+// rather than reading the ledger). A pure circuit is not a transaction entry
+// point, so `identityTag` can never be called on-chain with a secret key as a
+// public argument. It is still reachable from TypeScript via `pureCircuits`.
+export circuit identityTag(id: Bytes<32>, sk: Bytes<32>, domain: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>(
+    [pad(32, "equivault:v1:"), id, domain, sk]
+  );
+}
+
+export circuit requestCommitment(amount: Uint<64>, nonce: Bytes<32>): Bytes<32> {
+  return persistentCommit<Uint<64>>(amount, nonce);
+}
+
+// ---------------------------------------------------------------------------
+// submitRequest - the core privacy circuit.
+//
+// Proves, without revealing the amount:
+//   * the offering is open and the deadline has not passed
+//   * minRequest <= amount <= maxRequest
+//   * this secret key has not already subscribed
+// and publishes only: a hiding commitment, a one-way nullifier, and the
+// updated aggregate demand.
+// ---------------------------------------------------------------------------
+export circuit submitRequest(): [] {
+  assert(phase == Phase.OPEN, "EquiVault: offering is not open");
+  assert(!blockTimeGte(subscriptionDeadline), "EquiVault: subscription deadline has passed");
+
+  const request = subscriptionRequest();
+
+  assert(disclose(request.amount >= minRequest), "EquiVault: request below offering minimum");
+  assert(disclose(request.amount <= maxRequest), "EquiVault: request above offering maximum");
+
+  const nullifier = disclose(identityTag(offeringId, localSecretKey(), pad(32, "submit")));
+  assert(!submissionNullifiers.member(nullifier), "EquiVault: already subscribed to this offering");
+  submissionNullifiers.insert(nullifier);
+
+  const commitment = disclose(requestCommitment(request.amount, request.nonce));
+  requestTree.insert(commitment);
+
+  const demand = totalDemand + request.amount;
+  assert(disclose(demand <= 1099511627776), "EquiVault: aggregate demand exceeds cap");
+  totalDemand = disclose(demand as Uint<64>);
+
+  participantCount.increment(1);
+}
+
+// --- lifecycle -------------------------------------------------------------
+
+// The issuer may close the subscription window early.
+export circuit closeSubscriptionAsIssuer(): [] {
+  assert(phase == Phase.OPEN, "EquiVault: offering is not open");
+  const tag = disclose(identityTag(offeringId, localSecretKey(), pad(32, "issuer")));
+  assert(tag == issuerCommitment, "EquiVault: caller is not the issuer");
+  phase = Phase.CLOSED;
+}
+
+// Anyone may close the subscription window once the deadline has passed, so the
+// issuer cannot strand participants by refusing to close.
+export circuit closeSubscriptionAfterDeadline(): [] {
+  assert(phase == Phase.OPEN, "EquiVault: offering is not open");
+  assert(blockTimeGte(subscriptionDeadline), "EquiVault: subscription deadline has not passed");
+  phase = Phase.CLOSED;
+}
+
+// Finalizing freezes the pro-rata factor. Only the issuer may finalize.
+export circuit finalizeAllocation(): [] {
+  assert(phase == Phase.CLOSED, "EquiVault: offering is not closed");
+  const tag = disclose(identityTag(offeringId, localSecretKey(), pad(32, "issuer")));
+  assert(tag == issuerCommitment, "EquiVault: caller is not the issuer");
+  phase = Phase.FINALIZED;
+}
+
+// ---------------------------------------------------------------------------
+// claimAllocation - selective disclosure.
+//
+// The participant proves, WITHOUT revealing their requested quantity and
+// WITHOUT revealing which leaf of the request tree is theirs:
+//   * they submitted a request that is committed in the request tree
+//   * they have not already claimed
+//   * `quotient` is exactly floor(amount * effectiveSupply / totalDemand)
+//
+// The only new public fact is the resulting allocation, which the participant
+// is choosing to disclose in order to receive it.
+//
+// Compact has no division operator, so the quotient is supplied as a private
+// witness and CONSTRAINED in-circuit by the Euclidean bounds
+//     quotient * demand  <=  amount * effectiveSupply  <  (quotient + 1) * demand
+// which admits exactly one integer value.
+// ---------------------------------------------------------------------------
+export circuit claimAllocation(): Uint<64> {
+  assert(phase == Phase.FINALIZED, "EquiVault: allocation is not finalized");
+  assert(totalDemand > 0, "EquiVault: offering received no demand");
+
+  const request = subscriptionRequest();
+
+  // Membership: prove the commitment is in the tree without revealing which leaf.
+  const commitment = requestCommitment(request.amount, request.nonce);
+  const path = requestPath();
+  assert(disclose(path.leaf == commitment), "EquiVault: merkle path does not open to this request");
+  const root = disclose(merkleTreePathRoot<10, Bytes<32>>(path));
+  assert(requestTree.checkRoot(root), "EquiVault: request is not in the committed request set");
+
+  // One claim per secret key. This nullifier is domain-separated from the
+  // submission nullifier, so the two transactions cannot be linked.
+  const nullifier = disclose(identityTag(offeringId, localSecretKey(), pad(32, "claim")));
+  assert(!claimNullifiers.member(nullifier), "EquiVault: allocation already claimed");
+  claimNullifiers.insert(nullifier);
+
+  // effectiveSupply = min(totalSupply, totalDemand). When the offering is
+  // undersubscribed this makes the formula collapse to a full fill.
+  const effectiveSupply = totalDemand < totalSupply ? totalDemand : totalSupply;
+
+  const quotient = allocationQuotient();
+  const numerator = request.amount * effectiveSupply;
+  const lower = quotient * totalDemand;
+  const upper = lower + totalDemand;
+
+  assert(disclose(lower <= numerator), "EquiVault: allocation quotient too small");
+  assert(disclose(numerator < upper), "EquiVault: allocation quotient too large");
+
+  const allocation = disclose(quotient);
+
+  // Contract invariant: the offering can never over-allocate.
+  const allocated = allocatedTotal + allocation;
+  assert(allocated <= totalSupply, "EquiVault: allocation would exceed supply");
+  allocatedTotal = allocated as Uint<64>;
+
+  allocationReceipts.insert(nullifier, allocation);
+  claimCount.increment(1);
+
+  return allocation;
+}
