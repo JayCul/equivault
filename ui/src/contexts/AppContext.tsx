@@ -15,11 +15,11 @@ import {
   type ReactNode,
 } from 'react';
 import { toFriendlyFailure, type CreateOfferingParams, type FriendlyFailure, type EquiVaultProviders } from '@equivault/api';
-import type { NetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { DemoWorld, type DemoOfferingSession } from '../lib/demo';
 import { LiveOfferingSession } from '../lib/live';
 import type { OfferingSession } from '../lib/session';
 import { buildProviders, connectWallet, type ConnectedWallet } from '../lib/wallet';
+import { NETWORK_ID } from '../lib/network';
 
 export type Mode = 'demo' | 'live';
 
@@ -33,7 +33,7 @@ type AppState = {
   readonly mode: Mode;
   readonly setMode: (mode: Mode) => void;
 
-  readonly networkId: NetworkId;
+  readonly networkId: typeof NETWORK_ID;
 
   readonly wallet: WalletStatus;
   readonly connect: () => Promise<void>;
@@ -54,8 +54,6 @@ const AppContext = createContext<AppState | undefined>(undefined);
 
 const envMode = (): Mode =>
   (import.meta.env.VITE_DEMO_MODE ?? 'true') === 'false' ? 'live' : 'demo';
-
-const NETWORK_ID = (import.meta.env.VITE_NETWORK_ID ?? 'preprod') as NetworkId;
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [mode, setMode] = useState<Mode>(envMode);

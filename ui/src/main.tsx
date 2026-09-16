@@ -1,4 +1,5 @@
 import './globals';
+import './lib/network';
 import './styles.css';
 
 import { StrictMode } from 'react';
