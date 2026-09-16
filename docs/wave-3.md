@@ -116,6 +116,36 @@ Extract the primitive into something other builders use:
 - Embeddable participation and verification widgets.
 - A public verifier that any third party can point at an offering address.
 
+### 6. Post-allocation settlement: dividends and share recalculation
+
+Everything so far ends at `claimAllocation`: a participant receives a quantity, and the offering is
+done. Real equity does not stop there. Two settlement primitives extend the same architecture
+without changing its privacy model.
+
+**Dividends.** `allocationReceipts` is already an anonymous cap table: a map from an unlinkable
+claim nullifier to a quantity, with no identity attached. A `claimDividend` circuit reuses that
+directly. The issuer funds a dividend pool and publishes a rate; a holder proves they own a claim
+nullifier already present in `allocationReceipts`, and receives `rate * allocation` without
+re-disclosing which allocation is theirs beyond what was already public at claim time. A
+dividend-scoped nullifier (a fourth domain, alongside `submit`, `claim` and `issuer`) stops the same
+holder collecting one round twice, exactly like every other nullifier in this contract.
+
+**Share recalculation (splits).** A 2-for-1 split or a 1-for-2 reverse split multiplies every
+outstanding allocation by a ratio. Compact still has no division operator, so a split ratio is
+represented as `(numerator, denominator)` and applied with the identical verified-multiplication
+technique already proven correct for the core allocation quotient: `assert(recalculated *
+denominator == original * numerator)` admits exactly one integer, so a wrong witness fails to prove
+rather than mis-adjusting a balance. Because `allocationReceipts` is a map rather than one running
+total, recalculation can apply lazily, at claim or view time, against the stored pre-split figure,
+rather than requiring a single transaction that rewrites every entry at once.
+
+**Why this is Wave 3, not Wave 2.** Wave 2 makes the existing one-shot allocation model into a
+complete product: more offerings, better dashboards, real error handling, none of it changing what
+the contract is capable of. Dividends and recalculation are new capabilities layered on top of an
+already-settled allocation, in the same spirit as the new `AllocationRule` variants and the
+eligibility work above; they belong with the rest of "what the primitive can do next," not with
+"finish what it already does."
+
 ## What would be required for production
 
 Stated plainly, because this is a demonstration and the gap is real:
