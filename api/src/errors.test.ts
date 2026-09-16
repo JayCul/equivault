@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failureCatalogue, toFriendlyFailure } from './errors.js';
+
+// toFriendlyFailure logs every classification (see errors.ts) - silence it
+// here so test output isn't a wall of diagnostic noise; the dedicated
+// 'diagnostic logging' block below asserts on it directly.
+beforeEach(() => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('errors :: classification', () => {
   const cases: ReadonlyArray<readonly [string, string]> = [
@@ -46,6 +57,53 @@ describe('errors :: classification', () => {
   it('reads through to a nested cause', () => {
     const error = new Error('call failed', { cause: new Error('failed assert: EquiVault: caller is not the issuer') });
     expect(toFriendlyFailure(error).kind).toEqual('not-issuer');
+  });
+
+  // Regression: this was the actual bug behind the "no console entry, just
+  // Something went wrong" report. Not every rejection in this app's
+  // dependency chain is a genuine `Error` instance - a WASM boundary, a
+  // browser-extension message-passing API, or a plain thrown object can all
+  // reject with something that fails `instanceof Error`. Previously that
+  // meant zero signal reached the classifier at all.
+  it('classifies a plain object carrying a message property', () => {
+    expect(toFriendlyFailure({ message: 'TypeError: Failed to fetch' }).kind).toEqual(
+      'network-unavailable',
+    );
+  });
+
+  it('classifies a plain object carrying a reason property', () => {
+    expect(toFriendlyFailure({ reason: 'insufficient funds for transaction' }).kind).toEqual(
+      'insufficient-funds',
+    );
+  });
+
+  it('falls back to JSON for an object with neither message nor reason', () => {
+    // Still unknown - there is genuinely nothing to classify - but must not throw,
+    // including for a value with a circular reference that defeats JSON.stringify.
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    expect(() => toFriendlyFailure(circular)).not.toThrow();
+    expect(toFriendlyFailure(circular).kind).toEqual('unknown');
+  });
+});
+
+describe('errors :: diagnostic logging', () => {
+  it('logs the original error, not just the friendly copy', () => {
+    const original = new Error('failed assert: EquiVault: caller is not the issuer');
+    toFriendlyFailure(original);
+
+    expect(console.error).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(console.error).mock.calls[0]!;
+    expect(payload).toMatchObject({ kind: 'not-issuer', error: original });
+  });
+
+  it('logs even a value that fails every classification pattern', () => {
+    const original = { some: 'unrecognised shape' };
+    toFriendlyFailure(original);
+
+    expect(console.error).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(console.error).mock.calls[0]!;
+    expect(payload).toMatchObject({ kind: 'unknown', error: original });
   });
 });
 

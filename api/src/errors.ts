@@ -176,18 +176,59 @@ const PATTERNS: ReadonlyArray<readonly [RegExp, FailureKind]> = [
   ],
 ];
 
+/**
+ * Pulls text out of whatever got thrown, not just genuine `Error` instances.
+ *
+ * Several things in this app's dependency chain (a WASM boundary, a rejected
+ * value from a browser extension's message-passing API, a plain object thrown
+ * instead of an `Error`) can reject a promise with a value that fails
+ * `instanceof Error`. Previously that returned an empty string here, which
+ * meant `toFriendlyFailure` fell back to 'unknown' with literally no signal -
+ * not even a console trace - to say why. This is deliberately permissive: it
+ * is a diagnostic string, not something ever rendered to a user.
+ */
 const messageOf = (error: unknown): string => {
   if (error instanceof Error) {
-    return `${error.message} ${error.cause instanceof Error ? error.cause.message : ''}`;
+    const cause = error.cause instanceof Error ? error.cause.message : messageOf(error.cause);
+    return `${error.message} ${cause}`;
   }
-  return typeof error === 'string' ? error : '';
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object') {
+    const candidate = error as { message?: unknown; reason?: unknown; toString?: () => string };
+    if (typeof candidate.message === 'string') return candidate.message;
+    if (typeof candidate.reason === 'string') return candidate.reason;
+    try {
+      const asString = String(error);
+      // Skip the useless default: `String({})` is literally "[object Object]".
+      if (asString !== '[object Object]') return asString;
+      return JSON.stringify(error);
+    } catch {
+      return '';
+    }
+  }
+  return '';
 };
 
-/** Classifies an arbitrary thrown value into a user-facing failure. */
+/**
+ * Classifies an arbitrary thrown value into a user-facing failure.
+ *
+ * Every call site in the app routes through here, so this is also the one
+ * place that logs the ORIGINAL error to the console before it disappears
+ * behind friendly copy. Without this, an error that fails classification (see
+ * `messageOf`) is otherwise unrecoverable for debugging: the user sees a
+ * generic message and there is no trace of what actually happened, in the
+ * console or anywhere else.
+ */
 export const toFriendlyFailure = (error: unknown): FriendlyFailure => {
   const message = messageOf(error);
   const match = PATTERNS.find(([pattern]) => pattern.test(message));
   const kind: FailureKind = match ? match[1] : 'unknown';
+
+  // eslint-disable-next-line no-console -- deliberate: this is the diagnostic trail.
+  console.error('[EquiVault] classified failure:', { kind, message, error });
+
   return { kind, ...FAILURES[kind] };
 };
 
