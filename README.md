@@ -9,7 +9,7 @@ This project is built on the [Midnight Network](https://midnight.network/).
 [![Compact compiler](https://img.shields.io/badge/Compact%20compiler-0.31.1-F5A623.svg)](https://docs.midnight.network/relnotes/compact)
 [![Compact language](https://img.shields.io/badge/Compact%20language-0.23-F5A623.svg)](https://docs.midnight.network/compact)
 [![Midnight.js](https://img.shields.io/badge/Midnight.js-4.1.1-F5A623.svg)](https://docs.midnight.network/)
-[![Tests](https://img.shields.io/badge/tests-105%20passing-1f7d55.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-124%20passing-1f7d55.svg)](#testing)
 
 </div>
 
@@ -277,7 +277,7 @@ npm run test --workspace @equivault/api       # verification + error mapping
 npm run test --workspace @equivault/ui        # demo mode, formatting, key handling
 ```
 
-**105 tests**, covering:
+**124 tests**, covering:
 
 - **Contract (45):** offering creation and invalid parameters; valid and invalid requests; requests
   after the deadline; duplicate subscription; unauthorized close and finalize; oversubscribed and
@@ -289,11 +289,11 @@ npm run test --workspace @equivault/ui        # demo mode, formatting, key handl
   commitments hide *and* bind the amount; that an attacker who correctly guesses an amount still
   cannot match the published commitment without the opening; and that one key yields unlinkable
   tags across offerings and across domains.
-- **API (37):** every verification invariant, circuit-binding pass/fail/missing/unexpected cases,
+- **API (46):** every verification invariant, circuit-binding pass/fail/missing/unexpected cases,
   and the full error-classification table — including assertions that friendly copy never echoes a
   raw assertion string or a numeric value from the underlying error.
-- **UI (23):** demo seeding for all three offerings, the complete submit → close → finalize → claim
-  journey, formatting, and private-state key handling.
+- **UI (33):** demo seeding for all three offerings, the complete submit → close → finalize → claim
+  journey, formatting, private-state key handling, and the live-offering address registry.
 
 ## 14. Network deployment
 
